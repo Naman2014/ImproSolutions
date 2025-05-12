@@ -1,14 +1,15 @@
 import os
-import base64
 import json
-from typing import List, Dict, Any, Optional
-from openai import OpenAI
-from fastapi import HTTPException
+import base64
+from typing import Dict, Any, List, Optional
 
-from config import settings
+# the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
+# do not change this unless explicitly requested by the user
+from openai import OpenAI
 
 # Initialize OpenAI client
-openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+openai = OpenAI(api_key=OPENAI_API_KEY)
 
 async def extract_text_with_openai(document_text: str) -> Dict[str, Any]:
     """
@@ -20,39 +21,56 @@ async def extract_text_with_openai(document_text: str) -> Dict[str, Any]:
     Returns:
         Structured data extracted from the text
     """
+    # System prompt to instruct the model to extract procurement information
+    system_prompt = """
+    You are an AI procurement specialist. Extract structured information about items from the provided procurement document.
+    Focus on identifying products, quantities, brands, models, and any specifications.
+    For each item, provide:
+    1. A descriptive name
+    2. Quantity (if mentioned)
+    3. Brand (if mentioned)
+    4. Model number (if mentioned)
+    5. Size or dimensions (if mentioned)
+    6. A brief description with key specifications
+    7. A confidence score between 0 and 1 for your extraction
+
+    Return the information in the following JSON format:
+    {
+        "items": [
+            {
+                "id": "item1",
+                "name": "Item name",
+                "quantity": number,
+                "brand": "Brand name",
+                "model": "Model number",
+                "size": "Size information",
+                "description": "Brief description with specifications",
+                "extracted_confidence": 0.9
+            }
+        ]
+    }
+    """
+    
+    # User prompt with the document text
+    user_prompt = f"Extract procurement items from the following document text:\n\n{document_text}"
+    
     try:
-        # Create the prompt for OpenAI
-        prompt = """
-        Extract structured information from the following procurement request document text.
-        Identify items being requested, including their names, quantities, brands, models, sizes, and types if available.
-        Format the response as a JSON array of items, each with the following properties:
-        - name: The name of the item
-        - quantity: The quantity requested (if available)
-        - brand: The brand name (if available)
-        - model: The model number or name (if available)
-        - size: The size specification (if available)
-        - type: The type of item (if available)
-        - description: Any additional description
-        
-        Document text:
-        """
-        
-        response = openai_client.chat.completions.create(
-            # the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
-            # do not change this unless explicitly requested by the user
+        response = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are an AI assistant specializing in procurement document analysis."},
-                {"role": "user", "content": f"{prompt}\n\n{document_text}"}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
             response_format={"type": "json_object"},
-            max_tokens=2000
+            temperature=0.2
         )
         
+        # Parse the JSON response
         result = json.loads(response.choices[0].message.content)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OpenAI extraction error: {str(e)}")
+        print(f"Error in OpenAI extraction: {e}")
+        return {"items": []}
 
 async def analyze_image_with_openai(image_path: str) -> Dict[str, Any]:
     """
@@ -64,45 +82,60 @@ async def analyze_image_with_openai(image_path: str) -> Dict[str, Any]:
     Returns:
         Structured data extracted from the image
     """
+    # Read the image file
+    with open(image_path, "rb") as image_file:
+        base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+    
+    # System prompt to instruct the model to extract procurement information
+    system_prompt = """
+    You are an AI procurement specialist analyzing images of products or documents.
+    Extract all relevant product information visible in the image.
+    For each item you identify, provide:
+    1. A descriptive name
+    2. Quantity (if visible)
+    3. Brand (if visible)
+    4. Model number (if visible)
+    5. Size or dimensions (if visible)
+    6. A brief description with key specifications
+    7. A confidence score between 0 and 1 for your extraction
+
+    Return the information in the following JSON format:
+    {
+        "items": [
+            {
+                "id": "item1",
+                "name": "Item name",
+                "quantity": number,
+                "brand": "Brand name",
+                "model": "Model number",
+                "size": "Size information",
+                "description": "Brief description with specifications",
+                "extracted_confidence": 0.9
+            }
+        ]
+    }
+    """
+    
     try:
-        # Read the image file and encode as base64
-        with open(image_path, "rb") as image_file:
-            base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-        
-        # Create the prompt for OpenAI with the image
-        response = openai_client.chat.completions.create(
-            # the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
-            # do not change this unless explicitly requested by the user
+        response = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are an AI assistant specializing in procurement document analysis. Extract product details from images."
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Extract all product information from this image. Look for product name, model number, brand, size, quantity, and any other specifications. Format the response as JSON."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        }
-                    ]
-                }
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "Extract all product information from this image:"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]}
             ],
             response_format={"type": "json_object"},
-            max_tokens=1000
+            temperature=0.2
         )
         
+        # Parse the JSON response
         result = json.loads(response.choices[0].message.content)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OpenAI image analysis error: {str(e)}")
+        print(f"Error in OpenAI image analysis: {e}")
+        return {"items": []}
 
 async def get_vendor_suggestions(item_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
@@ -114,40 +147,48 @@ async def get_vendor_suggestions(item_data: Dict[str, Any]) -> List[Dict[str, An
     Returns:
         List of vendor suggestions
     """
+    # Format the item data for the prompt
+    item_description = f"""
+    Item: {item_data.get('name', 'Unknown item')}
+    Brand: {item_data.get('brand', 'N/A')}
+    Model: {item_data.get('model', 'N/A')}
+    Description: {item_data.get('description', 'No description available')}
+    """
+    
+    # System prompt to instruct the model
+    system_prompt = """
+    You are an AI procurement specialist. Based on the provided item information,
+    suggest types of vendors that would likely supply this item. For each vendor type,
+    provide a match score representing how likely they are to supply this specific item.
+    
+    Return the information in the following JSON format:
+    {
+        "vendor_suggestions": [
+            {
+                "vendor_type": "manufacturer",
+                "match_score": 0.9,
+                "specialization": "Electronics manufacturing"
+            }
+        ]
+    }
+    
+    Vendor types should be one of: manufacturer, authorized_distributor, reseller, stockist
+    """
+    
     try:
-        # Create prompt for vendor suggestions
-        item_description = f"Item: {item_data.get('name', '')}"
-        if item_data.get('brand'):
-            item_description += f", Brand: {item_data['brand']}"
-        if item_data.get('model'):
-            item_description += f", Model: {item_data['model']}"
-        if item_data.get('type'):
-            item_description += f", Type: {item_data['type']}"
-        
-        prompt = f"""
-        Suggest potential vendors for the following product:
-        {item_description}
-        
-        Return a JSON array of vendors with the following properties:
-        - company: Vendor company name
-        - country: Country of origin
-        - website: Company website URL
-        - email: Contact email
-        """
-        
-        response = openai_client.chat.completions.create(
-            # the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
-            # do not change this unless explicitly requested by the user
+        response = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are an AI assistant specializing in procurement vendor matching."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Suggest vendors for this item:\n{item_description}"}
             ],
             response_format={"type": "json_object"},
-            max_tokens=1000
+            temperature=0.3
         )
         
+        # Parse the JSON response
         result = json.loads(response.choices[0].message.content)
-        return result.get("vendors", [])
+        return result.get("vendor_suggestions", [])
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Vendor suggestion error: {str(e)}")
+        print(f"Error in OpenAI vendor suggestions: {e}")
+        return []
