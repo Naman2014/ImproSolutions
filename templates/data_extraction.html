@@ -66,15 +66,8 @@
                     <div>
                         {% if rfq.status == 'draft' or rfq.status == 'ready' %}
                         <button id="process-documents-btn" class="btn btn-primary" data-rfq-id="{{ rfq.id }}">
-                            <span data-feather="refresh-cw"></span>
-                            Process Documents with AI
+                            Process Documents
                         </button>
-                        {% endif %}
-                        {% if rfq.status == 'ready' %}
-                        <a href="/vendors/match/{{ rfq.id }}" class="btn btn-success">
-                            <span data-feather="users"></span>
-                            Find Matching Vendors
-                        </a>
                         {% endif %}
                     </div>
                 </div>
@@ -89,7 +82,7 @@
             <div class="card-header d-flex justify-content-between">
                 <h5 class="card-title mb-0">Extracted Items</h5>
                 <button id="add-item-btn" class="btn btn-sm btn-primary">
-                    <span data-feather="plus"></span> Add Item
+                    Add Item
                 </button>
             </div>
             <div class="card-body">
@@ -101,9 +94,7 @@
                                 <th>#</th>
                                 <th>Item Name</th>
                                 <th>Quantity</th>
-                                <th>Brand/Model</th>
                                 <th>Description</th>
-                                <th>Confidence</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -118,39 +109,11 @@
                                     <input type="number" class="form-control item-quantity" value="{{ item.quantity or 1 }}" min="1">
                                 </td>
                                 <td>
-                                    <input type="text" class="form-control item-brand" value="{{ item.brand or '' }}" placeholder="Brand">
-                                    <input type="text" class="form-control mt-1 item-model" value="{{ item.model or '' }}" placeholder="Model">
-                                </td>
-                                <td>
                                     <textarea class="form-control item-description">{{ item.description or '' }}</textarea>
                                 </td>
                                 <td>
-                                    <div class="progress">
-                                        <div class="progress-bar
-                                            {% if item.extracted_confidence >= 0.8 %}
-                                                bg-success
-                                            {% elif item.extracted_confidence >= 0.5 %}
-                                                bg-info
-                                            {% elif item.extracted_confidence >= 0.3 %}
-                                                bg-warning
-                                            {% elif item.extracted_confidence %}
-                                                bg-danger
-                                            {% else %}
-                                                bg-secondary
-                                            {% endif %}
-                                        " 
-                                        role="progressbar" 
-                                        style="width: {{ (item.extracted_confidence or 0) * 100 }}%" 
-                                        aria-valuenow="{{ (item.extracted_confidence or 0) * 100 }}" 
-                                        aria-valuemin="0" 
-                                        aria-valuemax="100">
-                                            {{ ((item.extracted_confidence or 0) * 100) | int }}%
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
                                     <button type="button" class="btn btn-sm btn-danger delete-item-btn">
-                                        <span data-feather="trash-2"></span>
+                                        Delete
                                     </button>
                                 </td>
                             </tr>
@@ -166,7 +129,6 @@
                 
                 <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
                     <button id="save-items-btn" class="btn btn-success" data-rfq-id="{{ rfq.id }}">
-                        <span data-feather="save"></span>
                         Save Items
                     </button>
                 </div>

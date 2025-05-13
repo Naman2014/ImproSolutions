@@ -51,8 +51,18 @@ function processDocuments(rfqId) {
     })
     .then(data => {
         hideLoadingSpinner('items-container');
-        displayExtractedItems(data.items);
-        showToast('Documents processed successfully', 'success');
+        if (data.status === 'success') {
+            if (data.items && data.items.length > 0) {
+                // Display the AI-generated items directly
+                displayExtractedItems(data.items);
+                showToast(`AI processing complete. Found ${data.item_count} items.`, 'success');
+            } else {
+                // If no items in response, reload the page
+                window.location.reload();
+            }
+        } else {
+            showToast(`Error: ${data.message || 'Unknown error'}`, 'danger');
+        }
     })
     .catch(error => {
         hideLoadingSpinner('items-container');
@@ -72,9 +82,7 @@ function displayExtractedItems(items) {
                 <th>#</th>
                 <th>Item Name</th>
                 <th>Quantity</th>
-                <th>Brand/Model</th>
                 <th>Description</th>
-                <th>Confidence</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -93,27 +101,11 @@ function displayExtractedItems(items) {
                     <input type="number" class="form-control item-quantity" value="${item.quantity || 1}" min="1">
                 </td>
                 <td>
-                    <input type="text" class="form-control item-brand" value="${item.brand || ''}" placeholder="Brand">
-                    <input type="text" class="form-control mt-1 item-model" value="${item.model || ''}" placeholder="Model">
-                </td>
-                <td>
                     <textarea class="form-control item-description">${item.description || ''}</textarea>
                 </td>
                 <td>
-                    <div class="progress">
-                        <div class="progress-bar ${getConfidenceClass(item.extracted_confidence)}" 
-                             role="progressbar" 
-                             style="width: ${(item.extracted_confidence || 0) * 100}%" 
-                             aria-valuenow="${(item.extracted_confidence || 0) * 100}" 
-                             aria-valuemin="0" 
-                             aria-valuemax="100">
-                            ${Math.round((item.extracted_confidence || 0) * 100)}%
-                        </div>
-                    </div>
-                </td>
-                <td>
                     <button type="button" class="btn btn-sm btn-danger delete-item-btn">
-                        <span data-feather="trash-2"></span>
+                        Delete
                     </button>
                 </td>
             </tr>
@@ -122,7 +114,7 @@ function displayExtractedItems(items) {
     } else {
         html += `
         <tr>
-            <td colspan="7" class="text-center">No items extracted. You can add items manually or process documents again.</td>
+            <td colspan="5" class="text-center">No items extracted. You can add items manually or process documents again.</td>
         </tr>
         `;
     }
@@ -133,11 +125,6 @@ function displayExtractedItems(items) {
     `;
     
     itemsContainer.innerHTML = html;
-    
-    // Initialize feather icons
-    if (typeof feather !== 'undefined') {
-        feather.replace();
-    }
     
     // Setup handlers for the new rows
     setupItemRowHandlers();
@@ -171,7 +158,7 @@ function addNewItemRow() {
     const rowCount = tbody.querySelectorAll('tr').length;
     
     // Remove the "no items" row if it exists
-    const noItemsRow = tbody.querySelector('tr td[colspan="7"]');
+    const noItemsRow = tbody.querySelector('tr td[colspan="5"]');
     if (noItemsRow) {
         noItemsRow.closest('tr').remove();
     }
@@ -190,37 +177,16 @@ function addNewItemRow() {
             <input type="number" class="form-control item-quantity" value="1" min="1">
         </td>
         <td>
-            <input type="text" class="form-control item-brand" value="" placeholder="Brand">
-            <input type="text" class="form-control mt-1 item-model" value="" placeholder="Model">
-        </td>
-        <td>
             <textarea class="form-control item-description"></textarea>
         </td>
         <td>
-            <div class="progress">
-                <div class="progress-bar bg-secondary" 
-                     role="progressbar" 
-                     style="width: 0%" 
-                     aria-valuenow="0" 
-                     aria-valuemin="0" 
-                     aria-valuemax="100">
-                    0%
-                </div>
-            </div>
-        </td>
-        <td>
             <button type="button" class="btn btn-sm btn-danger delete-item-btn">
-                <span data-feather="trash-2"></span>
+                Delete
             </button>
         </td>
     `;
     
     tbody.appendChild(newRow);
-    
-    // Initialize feather icons
-    if (typeof feather !== 'undefined') {
-        feather.replace();
-    }
     
     // Setup handlers for the new row
     setupItemRowHandlers();
@@ -233,13 +199,11 @@ function saveItemCorrections(rfqId) {
     
     itemRows.forEach(row => {
         // Skip the "no items" row if it exists
-        if (row.querySelector('td[colspan="7"]')) return;
+        if (row.querySelector('td[colspan="5"]')) return;
         
         const itemId = row.getAttribute('data-item-id');
         const name = row.querySelector('.item-name').value;
         const quantity = parseInt(row.querySelector('.item-quantity').value);
-        const brand = row.querySelector('.item-brand').value;
-        const model = row.querySelector('.item-model').value;
         const description = row.querySelector('.item-description').value;
         
         if (name) {
@@ -247,8 +211,6 @@ function saveItemCorrections(rfqId) {
                 id: itemId,
                 name: name,
                 quantity: quantity,
-                brand: brand,
-                model: model,
                 description: description
             });
         }

@@ -13,7 +13,10 @@ app.config['VERSION'] = "1.0.0"
 app.secret_key = os.environ.get("SESSION_SECRET", "placeholder_secret")
 
 # Configure database
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+from dotenv import load_dotenv
+load_dotenv()
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:naman@localhost:5432/INSOLU'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Import database models
@@ -31,7 +34,7 @@ with app.app_context():
         print(f"Error creating database tables: {e}")
 
 # Configure templates
-jinja_env = Environment(loader=PackageLoader('app', 'templates'))
+# jinja_env = Environment(loader=PackageLoader('app', 'templates'))
 
 # Root route
 @app.route("/", methods=["GET"])
@@ -64,7 +67,7 @@ from config import settings
 @app.route("/rfq/", methods=["GET"])
 def get_rfq_dashboard():
     # Get all RFQs from database
-    rfqs = RFQ.query.order_by(RFQ.created_at.desc()).all()
+    rfqs = RFQ.query.order_by(RFQ.created_at.desc()).all()   ## takin from database
     return render_template(
         "dashboard.html",
         title="RFQ Dashboard",
@@ -86,8 +89,8 @@ def create_rfq():
     files = request.files.getlist('files')
     
     # Generate RFQ number
-    prefix = settings.RFQ_PREFIX if hasattr(settings, 'RFQ_PREFIX') else "INQ13QP"
-    year = settings.RFQ_YEAR if hasattr(settings, 'RFQ_YEAR') else "2025"
+    prefix = settings.RFQ_PREFIX
+    year = settings.RFQ_YEAR
     
     # Get the latest RFQ number to increment
     last_rfq = RFQ.query.order_by(RFQ.rfq_number.desc()).first()
@@ -200,12 +203,7 @@ def process_rfq_documents(rfq_id):
                     id=item.id,
                     name=item.name,
                     quantity=item.quantity,
-                    brand=item.brand,
-                    model=item.model,
-                    size=item.size,
-                    type=item.type,
                     description=item.description,
-                    extracted_confidence=item.extracted_confidence,
                     rfq_id=rfq.id
                 )
                 db.session.add(db_item)
@@ -263,3 +261,7 @@ def internal_server_error(e):
 
 # Print startup message
 print("Starting ProcureIQ AI Procurement Automation System...")
+
+# Run the Flask application if this file is executed directly
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=5000, debug=True)

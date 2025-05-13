@@ -27,13 +27,8 @@ class ItemDetail(db.Model):
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), nullable=False)
-    quantity = Column(Integer, nullable=True)
-    brand = Column(String(100), nullable=True)
-    model = Column(String(100), nullable=True)
-    size = Column(String(100), nullable=True)
-    type = Column(String(100), nullable=True)
+    quantity = Column(Integer, nullable=True)    
     description = Column(Text, nullable=True)
-    extracted_confidence = Column(Float, nullable=True)
     rfq_id = Column(String(36), ForeignKey('rfqs.id'), nullable=False)
     
     rfq = relationship("RFQ", back_populates="items")

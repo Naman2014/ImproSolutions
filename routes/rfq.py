@@ -133,40 +133,81 @@ async def get_rfq_details(request: Request, rfq_id: str):
 
 @router.post("/{rfq_id}/process", response_class=JSONResponse)
 async def process_rfq_documents(request: Request, rfq_id: str):
-    """Process RFQ documents using AI to extract information"""
+    """Process RFQ documents to extract text and generate RFQ items using AI"""
     if rfq_id not in rfq_database:
         raise HTTPException(status_code=404, detail="RFQ not found")
     
     rfq = rfq_database[rfq_id]
+    print(f"\n=== PROCESSING RFQ: {rfq.rfq_number} ===")
+    print(f"Client: {rfq.client_name}")
+    print(f"Number of files: {len(rfq.files)}")
     
     # Update status
     rfq.status = RFQStatus.PROCESSING
     rfq_database[rfq_id] = rfq
     
-    # Process each document
+    # Process each document to extract text and generate RFQ items
     extracted_items = []
-    for file in rfq.files:
+    for idx, file in enumerate(rfq.files, 1):
+        print(f"\nProcessing file {idx}/{len(rfq.files)}: {file.filename} (Type: {file.file_type})")
         try:
+            # This now extracts content and uses AI to generate RFQ items
             items = await process_document(file.file_path, file.file_type)
+            print(f"Extraction complete. Items created: {len(items)}")
             extracted_items.extend(items)
         except Exception as e:
+            print(f"ERROR processing document: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error processing document: {str(e)}")
     
-    # Update RFQ with extracted items
+    # Update RFQ with extracted content
     rfq.items = extracted_items
     rfq.status = RFQStatus.READY
     rfq.updated_at = datetime.datetime.now()
     rfq_database[rfq_id] = rfq
     
-    return {"status": "success", "items": [item.dict() for item in extracted_items]}
+    print(f"\n=== PROCESSING COMPLETE ===")
+    print(f"Total items extracted: {len(extracted_items)}")
+    print(f"RFQ status updated to: {rfq.status}")
+    
+    # Convert items to dictionaries for the response
+    items_data = []
+    for item in extracted_items:
+        items_data.append({
+            "id": item.id,
+            "name": item.name,
+            "quantity": item.quantity,
+            "description": item.description
+        })
+    
+    return {
+        "status": "success", 
+        "message": "Documents processed successfully. AI has identified items from the documents.",
+        "item_count": len(extracted_items),
+        "items": items_data
+    }
 
 @router.put("/{rfq_id}/items", response_class=JSONResponse)
-async def update_rfq_items(request: Request, rfq_id: str, items: List[ItemDetail]):
+async def update_rfq_items(request: Request, rfq_id: str):
     """Update RFQ items after manual correction"""
     if rfq_id not in rfq_database:
         raise HTTPException(status_code=404, detail="RFQ not found")
     
     rfq = rfq_database[rfq_id]
+    
+    # Get the data from the request
+    items_data = await request.json()
+    items = []
+    
+    for item_data in items_data:
+        item = ItemDetail(
+            id=item_data.get('id', str(uuid.uuid4())),
+            name=item_data.get('name', 'Unnamed Item'),
+            quantity=item_data.get('quantity'),
+            description=item_data.get('description')
+        )
+        items.append(item)
+    
+    # Update RFQ with corrected items
     rfq.items = items
     rfq.updated_at = datetime.datetime.now()
     rfq_database[rfq_id] = rfq

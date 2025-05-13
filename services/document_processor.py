@@ -1,26 +1,60 @@
 import os
 import uuid
 import PyPDF2
-import pytesseract
+from google.cloud import vision
 from typing import List, Dict, Any
 from PIL import Image
 import docx
 import pandas as pd
 import io
+import json
 
 from models import FileType, ItemDetail
-from services.ai_service import extract_text_with_openai, analyze_image_with_openai
+from services.ai_service import RFQGenerator
+
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'C:\Users\naman\Desktop\up\test\ocrrfq-4d49980049c0.json'
+
+def analyze_text_patterns(text: str) -> None:
+    """Analyze and print basic patterns found in the extracted text"""
+    if not text or len(text) < 10:
+        print("Text too short for pattern analysis")
+        return
+    
+    # Check for likely patterns
+    patterns = []
+    if any(word in text.lower() for word in ["qty", "quantity", "pcs", "units"]):
+        patterns.append("Quantity indicators")
+    
+    if any(word in text.lower() for word in ["$", "usd", "eur", "price", "cost", "rate"]):
+        patterns.append("Price/cost indicators")
+    
+    if any(word in text.lower() for word in ["spec", "specification", "dimension", "size", "weight"]):
+        patterns.append("Specifications")
+    
+    if any(word in text.lower() for word in ["model", "part", "no.", "number", "sku", "code"]):
+        patterns.append("Part/model numbers")
+        
+    if any(word in text.lower() for word in ["brand", "manufacturer", "vendor", "supplier"]):
+        patterns.append("Brand/vendor references")
+    
+    # Print found patterns
+    if patterns:
+        print("Detected patterns in the text:")
+        for pattern in patterns:
+            print(f"  - {pattern}")
+    else:
+        print("No specific procurement patterns detected in the text")
 
 async def process_document(file_path: str, file_type: FileType) -> List[ItemDetail]:
     """
-    Process an uploaded document and extract item information
+    Process an uploaded document, extract text content, and use AI to generate RFQ items
     
     Args:
         file_path: Path to the uploaded file
         file_type: Type of the file (PDF, DOCX, EXCEL, IMAGE)
         
     Returns:
-        List of extracted items
+        List of extracted items as identified by the AI service
     """
     extracted_text = ""
     
@@ -28,35 +62,68 @@ async def process_document(file_path: str, file_type: FileType) -> List[ItemDeta
         # Extract text based on file type
         if file_type == FileType.PDF:
             extracted_text = extract_text_from_pdf(file_path)
+            print(f"\n--- EXTRACTED PDF CONTENT FROM {os.path.basename(file_path)} ---")
+            print(f"First 500 chars: {extracted_text[:500]}...")
+            print(f"Total length: {len(extracted_text)} characters")
         elif file_type == FileType.DOCX:
             extracted_text = extract_text_from_docx(file_path)
+            print(f"\n--- EXTRACTED DOCX CONTENT FROM {os.path.basename(file_path)} ---")
+            print(f"First 500 chars: {extracted_text[:500]}...")
+            print(f"Total length: {len(extracted_text)} characters")
         elif file_type == FileType.EXCEL:
             extracted_text = extract_text_from_excel(file_path)
+            print(f"\n--- EXTRACTED EXCEL CONTENT FROM {os.path.basename(file_path)} ---")
+            print(f"First 500 chars: {extracted_text[:500]}...")
+            print(f"Total length: {len(extracted_text)} characters")
         elif file_type == FileType.IMAGE:
-            # For images, use OpenAI vision API directly
-            return await process_image(file_path)
+            # For images, use OCR to extract text
+            extracted_text = extract_text_from_image(file_path)
+            print(f"\n--- EXTRACTED IMAGE CONTENT FROM {os.path.basename(file_path)} ---")
+            print(f"OCR text: {extracted_text}")
+            print(f"Total length: {len(extracted_text)} characters")
         
-        # Process the extracted text with OpenAI
+        # Analyze text patterns
         if extracted_text:
-            result = await extract_text_with_openai(extracted_text)
+            analyze_text_patterns(extracted_text)
             
-            # Convert the OpenAI result to ItemDetail objects
-            items = []
-            for item_data in result.get("items", []):
-                item_id = item_data.get("id", str(uuid.uuid4()))
-                item = ItemDetail(
-                    id=item_id,
-                    name=item_data.get("name", "Unnamed Item"),
-                    quantity=item_data.get("quantity"),
-                    brand=item_data.get("brand"),
-                    model=item_data.get("model"),
-                    size=item_data.get("size"),
-                    description=item_data.get("description"),
-                    extracted_confidence=item_data.get("extracted_confidence", 0.0)
-                )
-                items.append(item)
+            # Generate RFQ using AI service
+            print("\n--- GENERATING RFQ ITEMS WITH AI ---")
+            rfq_generator = RFQGenerator()
+            ai_result = rfq_generator.generate_rfq(extracted_text)
             
-            return items
+            try:
+                # Parse the AI response 
+                result_data = json.loads(ai_result)
+                items = []
+                
+                print(f"AI identified {len(result_data.get('items', []))} items in the document")
+                
+                # Convert AI results to ItemDetail objects
+                for item_data in result_data.get('items', []):
+                    item = ItemDetail(
+                        id=str(uuid.uuid4()),
+                        name=item_data.get('name', f"Item from {os.path.basename(file_path)}"),
+                        quantity=item_data.get('quantity', 1),
+                        description=item_data.get('description', '')
+                    )
+                    items.append(item)
+                    print(f"- Item: {item.name}, Quantity: {item.quantity}")
+                
+                if items:
+                    return items
+            except json.JSONDecodeError as e:
+                print(f"Error parsing AI response: {e}")
+                print(f"Raw AI response: {ai_result}")
+        
+        # Fallback: if AI processing fails, return a single item with raw content
+        if extracted_text:
+            item = ItemDetail(
+                id=str(uuid.uuid4()),
+                name=f"Document Content: {os.path.basename(file_path)}",
+                description=extracted_text
+            )
+            print("Falling back to raw content as a single item")
+            return [item]
     except Exception as e:
         print(f"Error processing document: {e}")
     
@@ -104,41 +171,36 @@ def extract_text_from_excel(file_path: str) -> str:
         print(f"Error extracting text from Excel: {e}")
     return text
 
-async def process_image(file_path: str) -> List[ItemDetail]:
-    """Process an image file using OCR and AI analysis"""
-    items = []
-    
+
+# def extract_text_from_image(file_path: str) -> str:
+#     """Extract text from an image file using OCR"""
+#     text = ""
+#     try:
+#         image = Image.open(file_path)
+#         # text = pytesseract.image_to_string(image)
+#     except Exception as e:
+#         print(f"Error extracting text from image: {e}")
+#     return text
+
+
+def extract_text_from_image(file_path: str) -> str:
+    """Extract text from an image file using OCR"""
+    text = ""
+    client = vision.ImageAnnotatorClient()
     try:
-        # First try OCR to extract text
-        ocr_text = ""
-        try:
-            image = Image.open(file_path)
-            ocr_text = pytesseract.image_to_string(image)
-        except Exception as e:
-            print(f"OCR extraction failed, falling back to image analysis: {e}")
-        
-        # If OCR extracted meaningful text, process it with text API
-        if len(ocr_text.strip()) > 100:  # Arbitrary threshold to determine if OCR was successful
-            result = await extract_text_with_openai(ocr_text)
-        else:
-            # Use image analysis API if OCR didn't yield good results
-            result = await analyze_image_with_openai(file_path)
-        
-        # Convert the AI result to ItemDetail objects
-        for item_data in result.get("items", []):
-            item_id = item_data.get("id", str(uuid.uuid4()))
-            item = ItemDetail(
-                id=item_id,
-                name=item_data.get("name", "Unnamed Item"),
-                quantity=item_data.get("quantity"),
-                brand=item_data.get("brand"),
-                model=item_data.get("model"),
-                size=item_data.get("size"),
-                description=item_data.get("description"),
-                extracted_confidence=item_data.get("extracted_confidence", 0.0)
-            )
-            items.append(item)
+        with open(file_path, "rb") as image_file:
+            content = image_file.read()
+
+        image = vision.Image(content=content)
+        response = client.text_detection(image=image)
+
+        if response.error.message:
+            raise Exception(f"Vision API Error: {response.error.message}")
+
+        if response.text_annotations:
+            text = response.text_annotations[0].description
+        return text
     except Exception as e:
-        print(f"Error processing image: {e}")
-    
-    return items
+        print(f"Error extracting text from image: {e}")
+
+    return text
