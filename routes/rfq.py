@@ -189,27 +189,65 @@ async def process_rfq_documents(request: Request, rfq_id: str):
 @router.put("/{rfq_id}/items", response_class=JSONResponse)
 async def update_rfq_items(request: Request, rfq_id: str):
     """Update RFQ items after manual correction"""
+    print(f"\n=== UPDATING RFQ ITEMS for {rfq_id} ===")
+    
+    # Check if RFQ exists
     if rfq_id not in rfq_database:
+        print(f"RFQ {rfq_id} not found")
         raise HTTPException(status_code=404, detail="RFQ not found")
     
     rfq = rfq_database[rfq_id]
+    print(f"Found RFQ: {rfq.rfq_number}")
     
-    # Get the data from the request
-    items_data = await request.json()
-    items = []
+    try:
+        # Get the data from the request
+        request_body = await request.body()
+        print(f"Request body size: {len(request_body)} bytes")
+        
+        # Try to parse JSON
+        try:
+            items_data = await request.json()
+            print(f"Successfully parsed JSON, received {len(items_data)} items")
+        except Exception as e:
+            print(f"Error parsing JSON: {str(e)}")
+            print(f"Raw request body: {request_body.decode('utf-8', errors='replace')}")
+            raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+        
+        items = []
+        
+        # Process each item
+        for idx, item_data in enumerate(items_data):
+            print(f"Processing item {idx}: {item_data.get('name', 'No name')}")
+            try:
+                item = ItemDetail(
+                    id=item_data.get('id', str(uuid.uuid4())),
+                    name=item_data.get('name', 'Unnamed Item'),
+                    quantity=item_data.get('quantity'),
+                    description=item_data.get('description')
+                )
+                items.append(item)
+            except Exception as e:
+                print(f"Error creating item {idx}: {str(e)}")
+                print(f"Item data: {item_data}")
+                # Continue with other items instead of failing completely
+        
+        if not items:
+            print("No valid items found in request")
+            raise HTTPException(status_code=400, detail="No valid items provided")
+        
+        # Update RFQ with corrected items
+        rfq.items = items
+        rfq.updated_at = datetime.datetime.now()
+        rfq_database[rfq_id] = rfq
+        
+        print(f"Successfully updated RFQ with {len(items)} items")
+        return {"status": "success", "message": f"RFQ items updated successfully. Saved {len(items)} items."}
     
-    for item_data in items_data:
-        item = ItemDetail(
-            id=item_data.get('id', str(uuid.uuid4())),
-            name=item_data.get('name', 'Unnamed Item'),
-            quantity=item_data.get('quantity'),
-            description=item_data.get('description')
-        )
-        items.append(item)
-    
-    # Update RFQ with corrected items
-    rfq.items = items
-    rfq.updated_at = datetime.datetime.now()
-    rfq_database[rfq_id] = rfq
-    
-    return {"status": "success", "message": "RFQ items updated successfully"}
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
