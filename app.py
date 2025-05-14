@@ -225,6 +225,12 @@ def update_rfq_items(rfq_id):
     # Get updated items from request
     items_data = request.get_json()
     
+    if not items_data:
+        print(f"Warning: No items data received in request")
+        return jsonify({"status": "error", "message": "No items data provided"}), 400
+    
+    print(f"Received {len(items_data)} items to update for RFQ {rfq_id}")
+    
     # Delete existing items
     ItemDetail.query.filter_by(rfq_id=rfq.id).delete()
     
@@ -234,12 +240,7 @@ def update_rfq_items(rfq_id):
             id=item_data.get('id', str(uuid.uuid4())),
             name=item_data['name'],
             quantity=item_data.get('quantity'),
-            brand=item_data.get('brand'),
-            model=item_data.get('model'),
-            size=item_data.get('size'),
-            type=item_data.get('type'),
             description=item_data.get('description'),
-            extracted_confidence=item_data.get('extracted_confidence'),
             rfq_id=rfq.id
         )
         db.session.add(item)
@@ -248,7 +249,7 @@ def update_rfq_items(rfq_id):
     rfq.updated_at = datetime.datetime.utcnow()
     db.session.commit()
     
-    return jsonify({"status": "success", "message": "Items updated successfully"})
+    return jsonify({"status": "success", "message": f"Items updated successfully. Saved {len(items_data)} items."})
 
 # Basic error handlers
 @app.errorhandler(404)
