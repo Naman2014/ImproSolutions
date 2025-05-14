@@ -11,8 +11,14 @@ import json
 
 from models import FileType, ItemDetail
 from services.ai_service import RFQGenerator
+from services.read_pdf import AzureAIPDFReader
+from config import settings
 
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'C:\Users\naman\Desktop\up\test\ocrrfq-4d49980049c0.json'
+
+# Azure Document Intelligence credentials from config
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT = settings.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT
+AZURE_DOCUMENT_INTELLIGENCE_KEY = settings.AZURE_DOCUMENT_INTELLIGENCE_KEY
 
 def analyze_text_patterns(text: str) -> None:
     """Analyze and print basic patterns found in the extracted text"""
@@ -131,16 +137,62 @@ async def process_document(file_path: str, file_type: FileType) -> List[ItemDeta
     return []
 
 def extract_text_from_pdf(file_path: str) -> str:
-    """Extract text from a PDF file"""
+    """Extract text from a PDF file using Azure AI Document Intelligence"""
     text = ""
     try:
-        with open(file_path, "rb") as file:
-            pdf_reader = PyPDF2.PdfReader(file)
-            for page_num in range(len(pdf_reader.pages)):
-                page = pdf_reader.pages[page_num]
-                text += page.extract_text() + "\n\n"
+        # Check if Azure credentials are available
+        if AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY:
+            # Use Azure AI PDF Reader
+            pdf_reader = AzureAIPDFReader(
+                endpoint=AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT, 
+                key=AZURE_DOCUMENT_INTELLIGENCE_KEY
+            )
+            
+            # Extract structured content from PDF
+            result = pdf_reader.extract_text(file_path)
+            
+            # Extract paragraphs and organize them into text
+            if result and "paragraphs" in result:
+                paragraphs = [p["text"] for p in result["paragraphs"]]
+                text = "\n\n".join(paragraphs)
+            
+            # If no paragraphs, try to get text from page lines
+            if not text and "pages" in result:
+                for page in result["pages"]:
+                    if "lines" in page:
+                        text += "\n".join(page["lines"]) + "\n\n"
+            
+            # Include table data
+            if "tables" in result:
+                text += "\n\nTABLES:\n"
+                for table in result["tables"]:
+                    if "grid" in table:
+                        for row in table["grid"]:
+                            text += " | ".join([cell if cell else "" for cell in row]) + "\n"
+                        text += "\n"
+            
+            print("Used Azure AI Document Intelligence for PDF extraction")
+        else:
+            # Fallback to PyPDF2 if Azure credentials are not available
+            print("Azure credentials not found. Using PyPDF2 fallback for PDF extraction")
+            with open(file_path, "rb") as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    text += page.extract_text() + "\n\n"
     except Exception as e:
         print(f"Error extracting text from PDF: {e}")
+        # Fallback to PyPDF2 if Azure extraction fails
+        try:
+            print("Falling back to PyPDF2 for PDF extraction")
+            with open(file_path, "rb") as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    text += page.extract_text() + "\n\n"
+        except Exception as inner_e:
+            print(f"Fallback extraction also failed: {inner_e}")
+    
     return text
 
 def extract_text_from_docx(file_path: str) -> str:
@@ -170,18 +222,6 @@ def extract_text_from_excel(file_path: str) -> str:
     except Exception as e:
         print(f"Error extracting text from Excel: {e}")
     return text
-
-
-# def extract_text_from_image(file_path: str) -> str:
-#     """Extract text from an image file using OCR"""
-#     text = ""
-#     try:
-#         image = Image.open(file_path)
-#         # text = pytesseract.image_to_string(image)
-#     except Exception as e:
-#         print(f"Error extracting text from image: {e}")
-#     return text
-
 
 def extract_text_from_image(file_path: str) -> str:
     """Extract text from an image file using OCR"""
