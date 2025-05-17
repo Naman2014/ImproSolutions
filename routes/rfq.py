@@ -19,15 +19,13 @@ rfq_database = {}
 current_rfq_number = 1
 
 def generate_rfq_number():
-    """Generate a unique RFQ number in the format INQ13QP-2025-00001"""
-    global current_rfq_number
-    rfq_num = f"{settings.RFQ_PREFIX}-{settings.RFQ_YEAR}-{current_rfq_number:05d}"
-    current_rfq_number += 1
-    return rfq_num
+    """Generate a unique RFQ number"""
+    now = datetime.datetime.now()
+    return f"RFQ-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
 def ensure_upload_dir_exists():
     """Ensure the upload directory exists"""
-    Path(settings.UPLOAD_FOLDER).mkdir(parents=True, exist_ok=True)
+    os.makedirs(settings.UPLOAD_FOLDER, exist_ok=True)
 
 @router.get("/", response_class=HTMLResponse)
 async def get_rfq_dashboard(request: Request):
@@ -153,6 +151,11 @@ async def process_rfq_documents(request: Request, rfq_id: str):
         try:
             # This now extracts content and uses AI to generate RFQ items
             items = await process_document(file.file_path, file.file_type)
+            
+            # Generate new UUIDs for the items before adding them to the RFQ
+            for item in items:
+                item.id = str(uuid.uuid4())  # Replace with a new UUID
+                
             print(f"Extraction complete. Items created: {len(items)}")
             extracted_items.extend(items)
         except Exception as e:
