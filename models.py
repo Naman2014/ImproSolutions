@@ -28,12 +28,8 @@ class ItemDetail(BaseModel):
     id: str
     name: str
     quantity: Optional[int] = None
-    brand: Optional[str] = None
-    model: Optional[str] = None
-    size: Optional[str] = None
-    type: Optional[str] = None
     description: Optional[str] = None
-    extracted_confidence: Optional[float] = None
+
 
 class RFQ(BaseModel):
     id: str
