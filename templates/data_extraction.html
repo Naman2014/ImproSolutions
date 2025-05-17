@@ -145,10 +145,11 @@
         // Initialize data extraction page
         initializeDataExtractionPage();
         
-        {% if message %}
-        // Show message if available
-        showToast('{{ message }}', 'success');
-        {% endif %}
+        // Check for message and show toast if available
+        var message = "{{ message|default('') }}";
+        if (message) {
+            showToast(message, 'success');
+        }
     });
 </script>
 {% endblock %}
