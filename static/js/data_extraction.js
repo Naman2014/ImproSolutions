@@ -5,13 +5,18 @@
 
 // Initialize the data extraction page
 function initializeDataExtractionPage() {
+    console.log('Initializing data extraction page');
+    
     // Setup event listeners for process button
     const processButton = document.getElementById('process-documents-btn');
     if (processButton) {
+        console.log('Found process button, attaching event listener');
         processButton.addEventListener('click', function() {
             const rfqId = this.getAttribute('data-rfq-id');
             processDocuments(rfqId);
         });
+    } else {
+        console.warn('Process button not found');
     }
     
     // Setup handlers for existing items
@@ -20,16 +25,27 @@ function initializeDataExtractionPage() {
     // Setup add new item button
     const addItemButton = document.getElementById('add-item-btn');
     if (addItemButton) {
+        console.log('Found add item button, attaching event listener');
         addItemButton.addEventListener('click', addNewItemRow);
+    } else {
+        console.warn('Add item button not found');
     }
     
     // Setup save button
     const saveButton = document.getElementById('save-items-btn');
     if (saveButton) {
+        console.log('Found save button, attaching event listener with RFQ ID:', saveButton.getAttribute('data-rfq-id'));
         saveButton.addEventListener('click', function() {
             const rfqId = this.getAttribute('data-rfq-id');
-            saveItemCorrections(rfqId);
+            if (rfqId) {
+                saveItemCorrections(rfqId);
+            } else {
+                console.error('Save button clicked but no RFQ ID found');
+                showToast('Error: Could not determine RFQ ID', 'danger');
+            }
         });
+    } else {
+        console.warn('Save button not found');
     }
 }
 
@@ -194,17 +210,35 @@ function addNewItemRow() {
 
 // Save the corrected items
 function saveItemCorrections(rfqId) {
+    console.log('Save button clicked for RFQ ID:', rfqId);
+    
     const itemRows = document.querySelectorAll('#items-table tbody tr');
+    console.log('Found item rows:', itemRows.length);
+    
     const items = [];
     
-    itemRows.forEach(row => {
+    itemRows.forEach((row, index) => {
         // Skip the "no items" row if it exists
-        if (row.querySelector('td[colspan="5"]')) return;
+        if (row.querySelector('td[colspan="5"]')) {
+            console.log('Skipping no-items row');
+            return;
+        }
         
         const itemId = row.getAttribute('data-item-id');
-        const name = row.querySelector('.item-name').value;
-        const quantity = parseInt(row.querySelector('.item-quantity').value);
-        const description = row.querySelector('.item-description').value;
+        const nameInput = row.querySelector('.item-name');
+        const quantityInput = row.querySelector('.item-quantity');
+        const descriptionInput = row.querySelector('.item-description');
+        
+        if (!nameInput || !quantityInput || !descriptionInput) {
+            console.error('Missing input elements in row', index);
+            return;
+        }
+        
+        const name = nameInput.value;
+        const quantity = parseInt(quantityInput.value) || 1;
+        const description = descriptionInput.value;
+        
+        console.log(`Item ${index}:`, { id: itemId, name, quantity, description });
         
         if (name) {
             items.push({
@@ -213,6 +247,8 @@ function saveItemCorrections(rfqId) {
                 quantity: quantity,
                 description: description
             });
+        } else {
+            console.warn('Skipping item with empty name');
         }
     });
     
@@ -221,23 +257,38 @@ function saveItemCorrections(rfqId) {
         return;
     }
     
+    console.log('Sending items to server:', items);
+    
+    // Create a JSON string for debugging
+    const jsonBody = JSON.stringify(items);
+    console.log('Request JSON body:', jsonBody);
+    
     fetch(`/rfq/${rfqId}/items`, {
         method: 'PUT',
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
         },
-        body: JSON.stringify(items)
+        body: jsonBody
     })
     .then(response => {
+        console.log('Server response status:', response.status);
+        console.log('Server response headers:', [...response.headers.entries()]);
+        
         if (!response.ok) {
-            throw new Error('Error saving items');
+            return response.text().then(text => {
+                console.error('Error response body:', text);
+                throw new Error(`Error saving items: ${response.status} ${response.statusText}`);
+            });
         }
         return response.json();
     })
     .then(data => {
+        console.log('Save successful:', data);
         showToast('Items saved successfully', 'success');
     })
     .catch(error => {
+        console.error('Save error:', error);
         showToast(`Error: ${error.message}`, 'danger');
     });
 }
