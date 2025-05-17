@@ -95,4 +95,4 @@ class AzureAIPDFReader:
             structured_result["tables"].append(table_data)
 
         return structured_result
-    
+
