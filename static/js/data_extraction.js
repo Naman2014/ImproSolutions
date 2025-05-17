@@ -71,10 +71,35 @@ function processDocuments(rfqId) {
             if (data.items && data.items.length > 0) {
                 // Display the AI-generated items directly
                 displayExtractedItems(data.items);
-                showToast(`AI processing complete. Found ${data.item_count} items.`, 'success');
+                showToast(`AI processing complete. Found ${data.items.length} items.`, 'success');
+                // Enable save button
+                const saveButton = document.getElementById('save-items-btn');
+                if (saveButton) {
+                    saveButton.disabled = false;
+                }
             } else {
                 // If no items in response, reload the page
                 window.location.reload();
+            }
+        } else if (data.status === 'invalid_rfq') {
+            // Handle invalid RFQ case
+            displayExtractedItems(data.items);
+            showToast(`Warning: ${data.message}`, 'warning');
+            
+            // Disable the save button
+            const saveButton = document.getElementById('save-items-btn');
+            if (saveButton) {
+                saveButton.disabled = true;
+                saveButton.title = 'Cannot save - Not a valid RFQ document';
+            }
+            
+            // Add alert message
+            const itemsContainer = document.getElementById('items-container');
+            if (itemsContainer) {
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-warning mt-3';
+                alertDiv.innerHTML = '<strong>Cannot proceed:</strong> The document does not appear to be a valid RFQ. Please upload a valid RFQ document.';
+                itemsContainer.appendChild(alertDiv);
             }
         } else {
             showToast(`Error: ${data.message || 'Unknown error'}`, 'danger');
