@@ -2,245 +2,167 @@ import os
 import uuid
 import PyPDF2
 from google.cloud import vision
-from typing import List, Dict, Any
-from PIL import Image
 import docx
 import pandas as pd
 import io
-import json
-
-from models import FileType, ItemDetail
-from services.ai_service import RFQGenerator
+from typing import Optional, List
 from services.read_pdf import AzureAIPDFReader
 from config import settings
+from models import ItemDetail, FileType
+from services.content_verifier import ContentVerifier
 
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'C:\Users\naman\Desktop\up\test\ocrrfq-4d49980049c0.json'
+class DocumentProcessor:
+    def __init__(self):
+        """Initialize document processor with necessary clients and configurations"""
+        self.vision_client = vision.ImageAnnotatorClient()
+        self.azure_endpoint = settings.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT
+        self.azure_key = settings.AZURE_DOCUMENT_INTELLIGENCE_KEY
 
-# Azure Document Intelligence credentials from config
-AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT = settings.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT
-AZURE_DOCUMENT_INTELLIGENCE_KEY = settings.AZURE_DOCUMENT_INTELLIGENCE_KEY
-
-def analyze_text_patterns(text: str) -> None:
-    """Analyze and print basic patterns found in the extracted text"""
-    if not text or len(text) < 10:
-        print("Text too short for pattern analysis")
-        return
-    
-    # Check for likely patterns
-    patterns = []
-    if any(word in text.lower() for word in ["qty", "quantity", "pcs", "units"]):
-        patterns.append("Quantity indicators")
-    
-    if any(word in text.lower() for word in ["$", "usd", "eur", "price", "cost", "rate"]):
-        patterns.append("Price/cost indicators")
-    
-    if any(word in text.lower() for word in ["spec", "specification", "dimension", "size", "weight"]):
-        patterns.append("Specifications")
-    
-    if any(word in text.lower() for word in ["model", "part", "no.", "number", "sku", "code"]):
-        patterns.append("Part/model numbers")
+    def extract_content(self, file_path: str) -> Optional[str]:
+        """
+        Main method to extract text content from various file formats
         
-    if any(word in text.lower() for word in ["brand", "manufacturer", "vendor", "supplier"]):
-        patterns.append("Brand/vendor references")
-    
-    # Print found patterns
-    if patterns:
-        print("Detected patterns in the text:")
-        for pattern in patterns:
-            print(f"  - {pattern}")
-    else:
-        print("No specific procurement patterns detected in the text")
+        Args:
+            file_path: Path to the input file
+            
+        Returns:
+            Extracted text content as string, or None if extraction fails
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
 
-async def process_document(file_path: str, file_type: FileType) -> List[ItemDetail]:
-    """
-    Process an uploaded document, extract text content, and use AI to generate RFQ items
-    
-    Args:
-        file_path: Path to the uploaded file
-        file_type: Type of the file (PDF, DOCX, EXCEL, IMAGE)
+        file_type = self._determine_file_type(file_path)
         
-    Returns:
-        List of extracted items as identified by the AI service
-    """
-    extracted_text = ""
-    
-    try:
-        # Extract text based on file type
-        if file_type == FileType.PDF:
-            extracted_text = extract_text_from_pdf(file_path)
-            print(f"\n--- EXTRACTED PDF CONTENT FROM {os.path.basename(file_path)} ---")
-            print(f"First 500 chars: {extracted_text[:500]}...")
-            print(f"Total length: {len(extracted_text)} characters")
-        elif file_type == FileType.DOCX:
-            extracted_text = extract_text_from_docx(file_path)
-            print(f"\n--- EXTRACTED DOCX CONTENT FROM {os.path.basename(file_path)} ---")
-            print(f"First 500 chars: {extracted_text[:500]}...")
-            print(f"Total length: {len(extracted_text)} characters")
-        elif file_type == FileType.EXCEL:
-            extracted_text = extract_text_from_excel(file_path)
-            print(f"\n--- EXTRACTED EXCEL CONTENT FROM {os.path.basename(file_path)} ---")
-            print(f"First 500 chars: {extracted_text[:500]}...")
-            print(f"Total length: {len(extracted_text)} characters")
-        elif file_type == FileType.IMAGE:
-            # For images, use OCR to extract text
-            extracted_text = extract_text_from_image(file_path)
-            print(f"\n--- EXTRACTED IMAGE CONTENT FROM {os.path.basename(file_path)} ---")
-            print(f"OCR text: {extracted_text}")
-            print(f"Total length: {len(extracted_text)} characters")
-        
-        # Analyze text patterns
-        if extracted_text:
-            analyze_text_patterns(extracted_text)
-            
-            # Generate RFQ using AI service
-            print("\n--- GENERATING RFQ ITEMS WITH AI ---")
-            rfq_generator = RFQGenerator()
-            ai_result = rfq_generator.generate_rfq(extracted_text)
-            
-            try:
-                # Parse the AI response 
-                result_data = json.loads(ai_result)
-                items = []
-                
-                print(f"AI identified {len(result_data.get('items', []))} items in the document")
-                
-                # Convert AI results to ItemDetail objects
-                for item_data in result_data.get('items', []):
-                    item = ItemDetail(
-                        id=str(uuid.uuid4()),
-                        name=item_data.get('name', f"Item from {os.path.basename(file_path)}"),
-                        quantity=item_data.get('quantity', 1),
-                        description=item_data.get('description', '')
-                    )
-                    items.append(item)
-                    print(f"- Item: {item.name}, Quantity: {item.quantity}")
-                
-                if items:
-                    return items
-            except json.JSONDecodeError as e:
-                print(f"Error parsing AI response: {e}")
-                print(f"Raw AI response: {ai_result}")
-        
-        # Fallback: if AI processing fails, return a single item with raw content
-        if extracted_text:
-            item = ItemDetail(
-                id=str(uuid.uuid4()),
-                name=f"Document Content: {os.path.basename(file_path)}",
-                description=extracted_text
-            )
-            print("Falling back to raw content as a single item")
-            return [item]
-    except Exception as e:
-        print(f"Error processing document: {e}")
-    
-    # Return empty list if processing failed
-    return []
-
-def extract_text_from_pdf(file_path: str) -> str:
-    """Extract text from a PDF file using Azure AI Document Intelligence"""
-    text = ""
-    try:
-        # Check if Azure credentials are available
-        if AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY:
-            # Use Azure AI PDF Reader
-            pdf_reader = AzureAIPDFReader(
-                endpoint=AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT, 
-                key=AZURE_DOCUMENT_INTELLIGENCE_KEY
-            )
-            
-            # Extract structured content from PDF
-            result = pdf_reader.extract_text(file_path)
-            
-            # Extract paragraphs and organize them into text
-            if result and "paragraphs" in result:
-                paragraphs = [p["text"] for p in result["paragraphs"]]
-                text = "\n\n".join(paragraphs)
-            
-            # If no paragraphs, try to get text from page lines
-            if not text and "pages" in result:
-                for page in result["pages"]:
-                    if "lines" in page:
-                        text += "\n".join(page["lines"]) + "\n\n"
-            
-            # Include table data
-            if "tables" in result:
-                text += "\n\nTABLES:\n"
-                for table in result["tables"]:
-                    if "grid" in table:
-                        for row in table["grid"]:
-                            text += " | ".join([cell if cell else "" for cell in row]) + "\n"
-                        text += "\n"
-            
-            print("Used Azure AI Document Intelligence for PDF extraction")
-        else:
-            # Fallback to PyPDF2 if Azure credentials are not available
-            print("Azure credentials not found. Using PyPDF2 fallback for PDF extraction")
-            with open(file_path, "rb") as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                for page_num in range(len(pdf_reader.pages)):
-                    page = pdf_reader.pages[page_num]
-                    text += page.extract_text() + "\n\n"
-    except Exception as e:
-        print(f"Error extracting text from PDF: {e}")
-        # Fallback to PyPDF2 if Azure extraction fails
         try:
-            print("Falling back to PyPDF2 for PDF extraction")
-            with open(file_path, "rb") as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                for page_num in range(len(pdf_reader.pages)):
-                    page = pdf_reader.pages[page_num]
-                    text += page.extract_text() + "\n\n"
-        except Exception as inner_e:
-            print(f"Fallback extraction also failed: {inner_e}")
-    
-    return text
+            if file_type == 'pdf':
+                return self._extract_pdf(file_path)
+            elif file_type == 'docx':
+                return self._extract_docx(file_path)
+            elif file_type == 'excel':
+                return self._extract_excel(file_path)
+            elif file_type == 'image':
+                return self._extract_image(file_path)
+            else:
+                raise ValueError(f"Unsupported file type: {file_type}")
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
+            return None
 
-def extract_text_from_docx(file_path: str) -> str:
-    """Extract text from a DOCX file"""
-    text = ""
-    try:
+    def _determine_file_type(self, file_path: str) -> str:
+        """Determine file type based on extension"""
+        ext = os.path.splitext(file_path)[1].lower().lstrip('.')
+        if ext == 'pdf':
+            return 'pdf'
+        elif ext == 'docx':
+            return 'docx'
+        elif ext in ['xls', 'xlsx', 'csv']:
+            return 'excel'
+        elif ext in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
+            return 'image'
+        else:
+            return ext
+
+    def _extract_pdf(self, file_path: str) -> str:
+        """Extract text from PDF using Azure AI or PyPDF2 fallback"""
+        if self.azure_endpoint and self.azure_key:
+            try:
+                return self._extract_pdf_azure(file_path)
+            except Exception as e:
+                print(f"Azure extraction failed: {e}, using fallback")
+        return self._extract_pdf_fallback(file_path)
+
+    def _extract_pdf_azure(self, file_path: str) -> str:
+        """Extract text using Azure Document Intelligence"""
+        pdf_reader = AzureAIPDFReader(
+            endpoint=self.azure_endpoint,
+            key=self.azure_key
+        )
+        result = pdf_reader.extract_text(file_path)
+        text = ""
+        
+        if result.get("paragraphs"):
+            text = "\n\n".join(p["text"] for p in result["paragraphs"])
+        elif result.get("pages"):
+            for page in result["pages"]:
+                text += "\n".join(page.get("lines", [])) + "\n\n"
+        
+        if result.get("tables"):
+            text += "\n\nTABLES:\n"
+            for table in result["tables"]:
+                if table.get("grid"):
+                    for row in table["grid"]:
+                        text += " | ".join(str(cell) for cell in row) + "\n"
+                    text += "\n"
+        return text
+
+    def _extract_pdf_fallback(self, file_path: str) -> str:
+        """Fallback PDF extraction using PyPDF2"""
+        text = ""
+        with open(file_path, "rb") as file:
+            reader = PyPDF2.PdfReader(file)
+            for page in reader.pages:
+                text += page.extract_text() + "\n\n"
+        return text
+
+    def _extract_docx(self, file_path: str) -> str:
+        """Extract text from DOCX documents"""
+        text = []
         doc = docx.Document(file_path)
-        for paragraph in doc.paragraphs:
-            text += paragraph.text + "\n"
+        
+        for para in doc.paragraphs:
+            text.append(para.text)
+            
         for table in doc.tables:
             for row in table.rows:
-                for cell in row.cells:
-                    text += cell.text + " | "
-                text += "\n"
-    except Exception as e:
-        print(f"Error extracting text from DOCX: {e}")
-    return text
+                text.append(" | ".join(cell.text for cell in row.cells))
+                
+        return "\n".join(text)
 
-def extract_text_from_excel(file_path: str) -> str:
-    """Extract text from an Excel file"""
-    text = ""
-    try:
+    def _extract_excel(self, file_path: str) -> str:
+        """Extract text from Excel files"""
         df = pd.read_excel(file_path)
-        buffer = io.StringIO()
-        df.to_csv(buffer)
-        text = buffer.getvalue()
-    except Exception as e:
-        print(f"Error extracting text from Excel: {e}")
-    return text
+        return df.to_csv(index=False)
 
-def extract_text_from_image(file_path: str) -> str:
-    """Extract text from an image file using OCR"""
-    text = ""
-    client = vision.ImageAnnotatorClient()
-    try:
+    def _extract_image(self, file_path: str) -> str:
+        """Extract text from images using Google Vision OCR"""
         with open(file_path, "rb") as image_file:
             content = image_file.read()
 
         image = vision.Image(content=content)
-        response = client.text_detection(image=image)
-
+        response = self.vision_client.text_detection(image=image)
+        
         if response.error.message:
-            raise Exception(f"Vision API Error: {response.error.message}")
+            raise Exception(f"OCR Error: {response.error.message}")
+            
+        return response.text_annotations[0].description if response.text_annotations else ""
 
-        if response.text_annotations:
-            text = response.text_annotations[0].description
-        return text
+async def process_document(file_path: str, file_type: FileType) -> List[ItemDetail]:
+    """
+    Process a document to extract items
+    
+    Args:
+        file_path: Path to the file
+        file_type: Type of the file
+        
+    Returns:
+        List of extracted item details
+    """
+    try:
+        # Initialize the document processor
+        processor = DocumentProcessor()
+        
+        # Extract text content
+        extracted_text = processor.extract_content(file_path)
+        
+        if not extracted_text:
+            print(f"No text could be extracted from {file_path}")
+            return []
+        
+        # Use content verifier to extract items from the text
+        content_verifier = ContentVerifier()
+        items, is_rfq = content_verifier.generate_rfq(extracted_text)
+        
+        return items
     except Exception as e:
-        print(f"Error extracting text from image: {e}")
-
-    return text
+        print(f"Error in process_document: {str(e)}")
+        raise Exception(f"Error processing document: {str(e)}")

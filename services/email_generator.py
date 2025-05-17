@@ -121,16 +121,26 @@ async def send_email(email: Email):
                     part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
                     msg.attach(part)
         
-        # Send email
-        # Note: In a real implementation, we would use actual SMTP credentials
-        # For this demo, we'll just simulate email sending
-        
-        # Simulate sending
-        # In a real implementation:
-        # with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-        #    server.starttls()
-        #    server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-        #    server.send_message(msg)
+        # Send email using SMTP
+        try:
+            print(f"📧 Attempting to send email to {recipient_email}")
+            # Check if SMTP settings are configured
+            if not hasattr(settings, 'SMTP_HOST') or not settings.SMTP_HOST:
+                print("⚠️ SMTP settings not configured, simulating email send")
+                # Simulate sending if SMTP settings are not available
+                pass
+            else:
+                # Use actual SMTP to send email
+                with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+                    server.starttls()
+                    server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+                    server.send_message(msg)
+                    print(f"✅ Email sent successfully to {recipient_email}")
+        except Exception as smtp_error:
+            print(f"❌ SMTP error: {smtp_error}")
+            email.status = EmailStatus.FAILED
+            email.error_message = f"SMTP error: {smtp_error}"
+            return
         
         # Update email status
         email.status = EmailStatus.SENT
