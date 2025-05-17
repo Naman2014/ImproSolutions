@@ -28,7 +28,7 @@ def initialize_mock_vendors():
                 website="https://techsupplies.example.com",
                 email="contact@techsupplies.example.com",
                 specializations=["Electronics", "IT Equipment"],
-                brands_carried=["Dell", "HP", "Cisco"],
+                brands_carried=["Dell", "HP", "Cisco"], # not such  needed
                 performance=VendorPerformance(
                     response_time_avg=24.5,
                     quality_rating=4.8,
